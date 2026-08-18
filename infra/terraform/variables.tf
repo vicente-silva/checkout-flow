@@ -9,24 +9,27 @@ variable "project_name" {
   description = "Prefix used for naming every AWS resource created by this stack."
 }
 
-variable "db_instance_class" {
-  type    = string
-  default = "db.t4g.micro" # AWS free-tier eligible
-}
-
-variable "db_password" {
-  type      = string
-  sensitive = true
-}
-
-variable "backend_image_tag" {
-  type    = string
-  default = "latest"
-}
-
-variable "frontend_origin" {
+variable "instance_type" {
   type        = string
-  description = "CORS origin allowed on the backend, e.g. the CloudFront domain (https://dxxxx.cloudfront.net)."
+  default     = "t3.micro" # free-tier eligible on most accounts; use t2.micro if yours requires it
+}
+
+variable "ssh_public_key_path" {
+  type        = string
+  description = "Path to the public half of a dedicated SSH key for this instance (see README: ssh-keygen)."
+  default     = "~/.ssh/checkout-flow-ec2.pub"
+}
+
+variable "ssh_allowed_cidr" {
+  type        = string
+  default     = "0.0.0.0/0"
+  description = "CIDR allowed to SSH into the instance. Restrict to your own IP/32 once you know it."
+}
+
+variable "repo_url" {
+  type        = string
+  description = "Public Git URL the instance clones on boot."
+  default     = "https://github.com/vicente-silva/checkout-flow.git"
 }
 
 variable "wompi_sandbox_url" {
@@ -36,4 +39,19 @@ variable "wompi_sandbox_url" {
 
 variable "wompi_public_key" {
   type = string
+}
+
+variable "wompi_private_key" {
+  type      = string
+  sensitive = true
+}
+
+variable "wompi_events_key" {
+  type      = string
+  sensitive = true
+}
+
+variable "wompi_integrity_key" {
+  type      = string
+  sensitive = true
 }

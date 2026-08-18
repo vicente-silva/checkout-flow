@@ -1,22 +1,20 @@
-output "backend_url" {
-  value       = "http://${aws_lb.backend.dns_name}"
-  description = "Public URL of the backend API (put a real domain + ACM cert in front for HTTPS)."
+output "public_ip" {
+  value       = aws_eip.app.public_ip
+  description = "Elastic IP of the instance — stable across stop/start/reboot."
 }
 
 output "frontend_url" {
-  value       = "https://${aws_cloudfront_distribution.frontend.domain_name}"
-  description = "Public URL of the frontend SPA."
+  value = "http://${aws_eip.app.public_ip}"
 }
 
-output "ecr_backend_repository_url" {
-  value = aws_ecr_repository.backend.repository_url
+output "backend_url" {
+  value = "http://${aws_eip.app.public_ip}:3000"
 }
 
-output "ecr_frontend_repository_url" {
-  value = aws_ecr_repository.frontend.repository_url
+output "swagger_url" {
+  value = "http://${aws_eip.app.public_ip}:3000/docs"
 }
 
-output "rds_endpoint" {
-  value     = aws_db_instance.postgres.address
-  sensitive = false
+output "ssh_command" {
+  value = "ssh -i ~/.ssh/checkout-flow-ec2 ubuntu@${aws_eip.app.public_ip}"
 }

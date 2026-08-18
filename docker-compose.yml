@@ -40,15 +40,15 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: http://localhost:3000
-        VITE_WOMPI_SANDBOX_URL: https://api-sandbox.co.uat.wompi.dev/v1
-        VITE_WOMPI_PUBLIC_KEY: pub_stagtest_g2u0HQd3ZMh05hsSgTS2lUV8t3s4mOt7
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000}
+        VITE_WOMPI_SANDBOX_URL: ${VITE_WOMPI_SANDBOX_URL:-https://api-sandbox.co.uat.wompi.dev/v1}
+        VITE_WOMPI_PUBLIC_KEY: ${VITE_WOMPI_PUBLIC_KEY:-pub_stagtest_g2u0HQd3ZMh05hsSgTS2lUV8t3s4mOt7}
     container_name: checkout-frontend
     restart: unless-stopped
     depends_on:
       - backend
     ports:
-      - "5173:80"
+      - "${FRONTEND_HOST_PORT:-5173}:80"
 
 volumes:
   checkout_pg_data:
