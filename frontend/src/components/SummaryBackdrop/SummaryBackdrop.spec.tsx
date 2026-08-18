@@ -4,7 +4,7 @@ import SummaryBackdrop from './SummaryBackdrop';
 import { backendApi } from '@/api/backendApi';
 
 jest.mock('@/api/backendApi', () => ({
-  backendApi: { payTransaction: jest.fn() },
+  backendApi: { payTransaction: jest.fn(), listProducts: jest.fn().mockResolvedValue([]) },
 }));
 
 const transaction = {
@@ -56,5 +56,17 @@ describe('SummaryBackdrop', () => {
       acceptanceToken: 'acc',
       installments: 1,
     });
+  });
+
+  it('cancel resets the checkout so a stuck/errored transaction can be abandoned', async () => {
+    const { store } = renderWithStore(<SummaryBackdrop />, {
+      checkout: { transaction: { ...transaction, status: 'ERROR' }, error: 'Transaction already ERROR' } as any,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /cancelar y volver a la tienda/i }));
+
+    expect(store.getState().checkout.transaction).toBeNull();
+    expect(store.getState().checkout.step).toBe('PRODUCT');
+    await waitFor(() => expect(backendApi.listProducts).toHaveBeenCalled());
   });
 });

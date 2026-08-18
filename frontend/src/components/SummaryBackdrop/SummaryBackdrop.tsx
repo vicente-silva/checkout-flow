@@ -1,5 +1,6 @@
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { payCurrentTransaction } from '@/store/slices/checkoutSlice';
+import { payCurrentTransaction, resetCheckout } from '@/store/slices/checkoutSlice';
+import { fetchProducts } from '@/store/slices/productsSlice';
 import { formatCentsAsCurrency } from '@/domain/money';
 import CardBrandIcon from '@/components/CardBrandIcon/CardBrandIcon';
 import type { CardBrand } from '@/domain/cardValidation';
@@ -16,6 +17,11 @@ export default function SummaryBackdrop() {
   );
 
   if (!transaction) return null;
+
+  function handleCancel() {
+    dispatch(resetCheckout());
+    dispatch(fetchProducts());
+  }
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Resumen de pago">
@@ -58,6 +64,10 @@ export default function SummaryBackdrop() {
           onClick={() => dispatch(payCurrentTransaction())}
         >
           {isProcessing ? <span className="spinner" /> : 'Pagar ahora'}
+        </button>
+
+        <button className="btn btn-secondary" disabled={isProcessing} onClick={handleCancel}>
+          Cancelar y volver a la tienda
         </button>
       </div>
     </div>
