@@ -78,8 +78,10 @@ export class PayTransactionUseCase {
     });
 
     if (created.isFailure) {
-      transaction.markWith(TransactionStatus.ERROR, null);
-      await this.transactionRepository.save(transaction);
+      // Wompi never registered an attempt for this reference (the request
+      // itself was rejected — bad token, validation error, network issue),
+      // so nothing needs to be reconciled. Leave the transaction PENDING
+      // rather than burning it as ERROR, so the customer can just retry.
       return Result.fail(created.getError());
     }
 

@@ -154,7 +154,7 @@ describe('PayTransactionUseCase', () => {
     expect(transaction.status).toBe(TransactionStatus.ERROR);
   });
 
-  it('marks the transaction as ERROR when the gateway rejects the initial request', async () => {
+  it('leaves the transaction PENDING (retryable) when the gateway rejects the initial request', async () => {
     const deps = buildDeps();
     const transaction = buildTransaction();
     deps.transactionRepository.findById.mockResolvedValue(transaction);
@@ -173,8 +173,10 @@ describe('PayTransactionUseCase', () => {
     const result = await useCase.execute(payInput);
 
     expect(result.isFailure).toBe(true);
-    expect(transaction.status).toBe(TransactionStatus.ERROR);
-    expect(deps.transactionRepository.save).toHaveBeenCalledWith(transaction);
+    // Wompi never registered this reference, so nothing to reconcile — the
+    // customer can retry the same transaction instead of it being burned.
+    expect(transaction.status).toBe(TransactionStatus.PENDING);
+    expect(deps.transactionRepository.save).not.toHaveBeenCalled();
   });
 
   it('fails with NOT_FOUND when the transaction does not exist', async () => {
