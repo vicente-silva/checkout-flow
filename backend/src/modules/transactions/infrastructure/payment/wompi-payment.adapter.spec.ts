@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
+import { createHash } from 'crypto';
 import { WompiPaymentAdapter } from './wompi-payment.adapter';
 import { GatewayTransactionStatus } from '../../domain/payment-gateway.port';
 import { DomainErrorCode } from '@shared/domain/result';
@@ -22,8 +23,9 @@ describe('WompiPaymentAdapter', () => {
         const values: Record<string, string> = {
           WOMPI_SANDBOX_URL: 'https://api-sandbox.example/v1',
           WOMPI_PRIVATE_KEY: 'prv_test',
+          WOMPI_INTEGRITY_KEY: 'integrity_secret_test',
         };
-        return values[key];
+        return values[key] ?? '';
       }),
     } as unknown as ConfigService;
     return new WompiPaymentAdapter(configService);
@@ -48,6 +50,10 @@ describe('WompiPaymentAdapter', () => {
       gatewayTransactionId: 'gtw-1',
       status: GatewayTransactionStatus.PENDING,
     });
+    const expectedSignature = createHash('sha256')
+      .update('REF-1100000COPintegrity_secret_test')
+      .digest('hex');
+
     expect(post).toHaveBeenCalledWith(
       '/transactions',
       expect.objectContaining({
@@ -56,6 +62,7 @@ describe('WompiPaymentAdapter', () => {
         customer_email: 'jane@example.com',
         reference: 'REF-1',
         acceptance_token: 'acc_test',
+        signature: expectedSignature,
         payment_method: { type: 'CARD', installments: 1, token: 'tok_test' },
       }),
     );

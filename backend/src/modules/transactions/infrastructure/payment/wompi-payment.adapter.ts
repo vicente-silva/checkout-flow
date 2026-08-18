@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
+import { createHash } from 'crypto';
 import { Result, DomainError } from '@shared/domain/result';
 import {
   CreateGatewayTransactionInput,
@@ -36,6 +37,7 @@ const WOMPI_TO_GATEWAY_STATUS: Record<string, GatewayTransactionStatus> = {
 export class WompiPaymentAdapter implements PaymentGatewayPort {
   private readonly logger = new Logger(WompiPaymentAdapter.name);
   private readonly client: AxiosInstance;
+  private readonly integritySecret: string;
 
   constructor(private readonly configService: ConfigService) {
     this.client = axios.create({
@@ -45,6 +47,7 @@ export class WompiPaymentAdapter implements PaymentGatewayPort {
         Authorization: `Bearer ${this.configService.get<string>('WOMPI_PRIVATE_KEY')}`,
       },
     });
+    this.integritySecret = this.configService.get<string>('WOMPI_INTEGRITY_KEY', '');
   }
 
   async createTransaction(
@@ -57,6 +60,7 @@ export class WompiPaymentAdapter implements PaymentGatewayPort {
         customer_email: input.customerEmail,
         reference: input.reference,
         acceptance_token: input.acceptanceToken,
+        signature: this.buildIntegritySignature(input.reference, input.amountInCents, input.currency),
         payment_method: {
           type: 'CARD',
           installments: input.installments,
@@ -68,6 +72,16 @@ export class WompiPaymentAdapter implements PaymentGatewayPort {
     } catch (error) {
       return Result.fail(this.toGatewayError('create the transaction', error));
     }
+  }
+
+  /**
+   * Wompi requires this on transaction creation: SHA-256 of
+   * `reference + amountInCents + currency + integritySecret`, hex-encoded.
+   * Docs: https://docs.wompi.co/docs/colombia/widget-checkout-web/#firma-de-integridad
+   */
+  private buildIntegritySignature(reference: string, amountInCents: number, currency: string): string {
+    const raw = `${reference}${amountInCents}${currency}${this.integritySecret}`;
+    return createHash('sha256').update(raw).digest('hex');
   }
 
   async getTransactionStatus(
