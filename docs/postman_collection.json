@@ -1,0 +1,119 @@
+{
+  "info": {
+    "name": "Checkout Flow API",
+    "_postman_id": "9c7f3a2e-3d1a-4a3a-8e2a-checkout-flow-api",
+    "description": "Product checkout / payment onboarding API. Swagger UI is also served at {{baseUrl}}/docs.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "productId", "value": "" },
+    { "key": "customerId", "value": "" },
+    { "key": "deliveryId", "value": "" },
+    { "key": "transactionId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Products",
+      "item": [
+        {
+          "name": "List products",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/products"
+          }
+        },
+        {
+          "name": "Get product by id",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/products/{{productId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Customers",
+      "item": [
+        {
+          "name": "Create or get customer",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/customers",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Jane Doe\",\n  \"email\": \"jane.doe@example.com\",\n  \"phoneNumber\": \"+573001234567\",\n  \"documentType\": \"CC\",\n  \"documentNumber\": \"1020304050\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Deliveries",
+      "item": [
+        {
+          "name": "Create delivery",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/deliveries",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"addressLine\": \"Cra 7 # 71-21\",\n  \"city\": \"Bogota\",\n  \"region\": \"Cundinamarca\",\n  \"postalCode\": \"110231\",\n  \"country\": \"Colombia\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Transactions",
+      "item": [
+        {
+          "name": "Create transaction (PENDING)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/transactions",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": \"{{productId}}\",\n  \"customerId\": \"{{customerId}}\",\n  \"deliveryId\": \"{{deliveryId}}\",\n  \"quantity\": 1\n}"
+            }
+          }
+        },
+        {
+          "name": "Pay transaction",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/transactions/{{transactionId}}/pay",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cardToken\": \"tok_stagtest_xxx\",\n  \"acceptanceToken\": \"acc_token_xxx\",\n  \"installments\": 1\n}"
+            }
+          },
+          "description": "cardToken and acceptanceToken must be obtained client-side against Wompi's sandbox using the public key, per PCI best practice (card data never touches this backend)."
+        },
+        {
+          "name": "Get transaction",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/transactions/{{transactionId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/health"
+          }
+        }
+      ]
+    }
+  ]
+}
