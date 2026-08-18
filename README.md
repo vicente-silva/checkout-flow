@@ -253,9 +253,12 @@ the frontend, ECS Fargate + ALB for the backend, RDS for Postgres) and
 [`infra/terraform`](infra/terraform) for an infrastructure-as-code scaffold of the same
 resources.
 
-**Deployed URLs**: _fill in after deploying —_
-- Frontend: `TODO`
-- Backend API: `TODO`
+**Deployed URLs** (single EC2 instance running `docker-compose.yml`, chosen over ECS+ALB+RDS
+for this deployment since it's evaluated by a couple of reviewers and an ALB bills hourly
+regardless of traffic — see [`infra/terraform`](infra/terraform) for details):
+- Frontend: http://32.196.234.16
+- Backend API: http://32.196.234.16:3000
+- Swagger: http://32.196.234.16:3000/docs
 
 ## Rubric self-check
 
