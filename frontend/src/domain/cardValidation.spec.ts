@@ -59,8 +59,9 @@ describe('isValidCvc', () => {
 });
 
 describe('isValidCardHolder', () => {
-  it('requires at least 3 characters', () => {
+  it('requires at least 5 characters (Wompi tokenization minimum)', () => {
     expect(isValidCardHolder('Jo')).toBe(false);
+    expect(isValidCardHolder('Anna')).toBe(false);
     expect(isValidCardHolder('Jane Doe')).toBe(true);
     expect(isValidCardHolder('   ')).toBe(false);
   });

@@ -144,6 +144,10 @@ export default function PaymentInfoModal() {
             <CardBrandIcon brand={brand} />
           </div>
           {errors.cardNumber && <span className="field-error">{errors.cardNumber}</span>}
+          <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+            Ambiente de pruebas: usa 4242 4242 4242 4242 (Visa) o 5555 5555 5555 4444
+            (Mastercard) — cualquier CVC/fecha futura funciona.
+          </span>
         </div>
 
         <div className="field">

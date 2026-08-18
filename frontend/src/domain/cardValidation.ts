@@ -37,8 +37,9 @@ export function isValidCvc(cvc: string): boolean {
   return /^\d{3,4}$/.test(cvc);
 }
 
+/** Wompi's tokenization endpoint rejects card_holder shorter than 5 characters. */
 export function isValidCardHolder(name: string): boolean {
-  return name.trim().length >= 3;
+  return name.trim().length >= 5;
 }
 
 /** Expiry must be a real future month, in MM/YY form. */
