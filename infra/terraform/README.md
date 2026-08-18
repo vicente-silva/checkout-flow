@@ -1,40 +1,36 @@
-# Terraform scaffold (AWS)
+# Terraform: single EC2 deployment
 
-Provisions the core infrastructure to run this project on AWS free-tier-eligible resources:
+Provisions the AWS infrastructure this project actually runs on: **one EC2 `t3.micro`
+instance** running the repo's `docker-compose.yml` (Postgres + backend + frontend), with an
+Elastic IP so the address is stable across stops/restarts.
 
-- **ECR**: one repository each for the backend and frontend Docker images.
-- **RDS PostgreSQL** (`db.t4g.micro`) in the account's default VPC.
-- **ECS Fargate** running the backend behind an Application Load Balancer.
-- **S3 + CloudFront** serving the frontend static build (SPA fallback to `index.html`).
+Resources created: the instance, a security group (22/80/3000), a dedicated SSH key pair,
+an Elastic IP + association. That's it — no ALB, no RDS, no ECS. See
+[`../../docs/DEPLOYMENT.md`](../../docs/DEPLOYMENT.md) for the full step-by-step
+(IAM user setup, applying, redeploying after a code change, smoke test, teardown) and for
+the ECS/ALB/RDS alternative if this ever needs to handle real traffic.
 
-> **Honesty note:** this scaffold was written by hand and has **not** been run through
-> `terraform plan`/`apply` in this environment (no AWS credentials or Terraform CLI were
-> available here). Treat it as a solid, reviewed starting point — run `terraform validate`
-> and `terraform plan` yourself before applying, and review the security groups / IAM
-> policies for your account's requirements.
-
-## Usage
+## Quick reference
 
 ```bash
-cd infra/terraform
+ssh-keygen -t ed25519 -f ~/.ssh/checkout-flow-ec2 -N ""
 terraform init
-terraform plan -var="db_password=CHANGE_ME" \
-  -var="frontend_origin=https://your-cloudfront-domain.cloudfront.net" \
-  -var="wompi_public_key=pub_stagtest_g2u0HQd3ZMh05hsSgTS2lUV8t3s4mOt7"
-terraform apply
+cp terraform.tfvars.example terraform.tfvars   # fill in Wompi sandbox keys
+AWS_PROFILE=checkout-flow terraform plan -out=tfplan
+AWS_PROFILE=checkout-flow terraform apply "tfplan"
 ```
 
-Then build/push the images to the ECR repos the stack created, and deploy the frontend
-build (`dist/`) to the S3 bucket. See [`../../docs/DEPLOYMENT.md`](../../docs/DEPLOYMENT.md)
-for the full step-by-step, including the manual-console alternative if you'd rather not use
-Terraform at all.
+IAM permissions needed for the `checkout-flow` profile: see
+[`../iam-policy-checkout-flow-deployer.json`](../iam-policy-checkout-flow-deployer.json) —
+scoped to EC2 instance/security-group/key-pair/EIP lifecycle only, nothing else.
 
 ## What's intentionally left out
 
-- **Secrets**: the DB password and Wompi private/integrity keys should be pulled from AWS
-  Secrets Manager or SSM Parameter Store into the task definition's `secrets` block, not
-  passed as plain environment variables. The scaffold wires the *public* values only.
-- **Custom domain + HTTPS on the ALB**: add an ACM certificate + Route 53 record and an
-  HTTPS listener once you have a domain.
-- **Dedicated VPC**: this reuses the default VPC/subnets to keep the scaffold small; a
-  production setup should isolate RDS/ECS in private subnets.
+- **HTTPS**: the instance is reachable over plain HTTP on its Elastic IP; there's no domain
+  to issue a certificate for. See the "Known gap" section in `docs/DEPLOYMENT.md`.
+- **Secrets Manager**: the Wompi private/integrity keys are written into
+  `backend/.env` on the instance via `user_data` (from Terraform variables, themselves from
+  the gitignored `terraform.tfvars`) rather than pulled from Secrets Manager/SSM at runtime.
+  Fine for a sandbox-only demo; wouldn't be for a production deployment with real secrets.
+- **Auto-deploy on push**: redeploying after a code change is a manual `git pull` + rebuild
+  over SSH (documented in `docs/DEPLOYMENT.md`), not a CI/CD pipeline.

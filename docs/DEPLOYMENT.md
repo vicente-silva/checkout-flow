@@ -1,116 +1,129 @@
 # Deployment guide (AWS)
 
-Two ways to deploy, pick one:
-
-- **A. Manual / AWS CLI** (recommended first pass — fastest to reason about, uses the AWS
-  free tier).
-- **B. Terraform** (see [`infra/terraform`](../infra/terraform)) — provisions the same
-  resources as code, but was not applied/validated in this environment; review it before
-  running `apply`.
-
-Either way, the target architecture is:
+**What's actually running**: a single EC2 `t3.micro` instance running the repo's own
+`docker-compose.yml` (Postgres + backend + frontend, same as local dev). Chosen over the
+more "textbook" ECS Fargate + ALB + RDS split because this app is reviewed by a couple of
+people, not run in production — an Application Load Balancer bills hourly regardless of
+traffic (~$16-20/mo) while a `t3.micro` is free-tier eligible (750 hrs/mo for 12 months) or
+a couple dollars/month after that.
 
 ```
-                       ┌─────────────────────┐
-  Browser ───HTTPS───► │ CloudFront + S3      │  (frontend static build)
-                       └─────────┬────────────┘
-                                 │ REST calls (VITE_API_BASE_URL)
-                                 ▼
-                       ┌─────────────────────┐
-                       │ ALB → ECS Fargate    │  (backend NestJS API)
-                       │ (or a single EC2 /   │
-                       │  Lambda, see notes)  │
-                       └─────────┬────────────┘
-                                 │
-                                 ▼
-                       ┌─────────────────────┐
-                       │ RDS PostgreSQL       │
-                       └─────────────────────┘
+                    ┌───────────────────────────────────────────┐
+ Browser ──HTTP───► │ EC2 t3.micro (Elastic IP)                  │
+                    │  ┌─────────────┐  ┌──────────┐  ┌────────┐ │
+                    │  │ frontend    │  │ backend  │  │postgres│ │
+                    │  │ nginx :80   │─►│ Nest :3000│─►│ :5432 │ │
+                    │  └─────────────┘  └──────────┘  └────────┘ │
+                    │  all three as docker-compose services      │
+                    └───────────────────────────────────────────┘
 ```
 
-## A. Manual deployment
+If you need to scale this beyond a demo (real traffic, HA, zero-downtime deploys), see
+[Alternative: ECS + ALB + RDS](#alternative-ecs--alb--rds) at the bottom — that's the
+"textbook" version, not what's deployed today.
 
-### 1. Database — RDS PostgreSQL
+## 1. Create a scoped AWS IAM user
 
-1. RDS console → **Create database** → PostgreSQL → **Free tier** template.
-2. DB instance identifier: `checkout-flow-db`. Master username `checkout`, set a password.
-3. Public access: **No**. Create/attach a security group that allows port `5432` only from
-   the backend's security group (created in step 2).
-4. Once available, note the endpoint — this is `DB_HOST`.
-5. Run the migration from your machine (with the RDS security group temporarily open to
-   your IP, or via a bastion/ECS one-off task):
-   ```bash
-   cd backend
-   DB_HOST=<rds-endpoint> DB_USERNAME=checkout DB_PASSWORD=*** DB_DATABASE=checkout_db \
-     npm run migration:run
-   DB_HOST=<rds-endpoint> DB_USERNAME=checkout DB_PASSWORD=*** DB_DATABASE=checkout_db \
-     npm run seed
-   ```
+Don't reuse a personal/production AWS key. Create a dedicated user with only the
+permissions this stack needs:
 
-### 2. Backend — ECR + ECS Fargate
+1. **IAM → Users → Create user** → name it (e.g. `checkout-flow-deployer`), programmatic
+   access only.
+2. **IAM → Policies → Create policy → JSON** → paste
+   [`infra/iam-policy-checkout-flow-deployer.json`](../infra/iam-policy-checkout-flow-deployer.json)
+   → attach it to the user.
+3. **Security credentials → Create access key** (CLI use case).
+4. Locally: `aws configure --profile checkout-flow` with that key.
 
-1. Create an ECR repo and push the image:
-   ```bash
-   aws ecr create-repository --repository-name checkout-flow-backend
-   aws ecr get-login-password | docker login --username AWS --password-stdin <account>.dkr.ecr.<region>.amazonaws.com
-   docker build -t checkout-flow-backend ./backend
-   docker tag checkout-flow-backend:latest <account>.dkr.ecr.<region>.amazonaws.com/checkout-flow-backend:latest
-   docker push <account>.dkr.ecr.<region>.amazonaws.com/checkout-flow-backend:latest
-   ```
-2. ECS console → **Create cluster** (Fargate).
-3. **Task definition**: Fargate, 0.25 vCPU / 0.5 GB, container port `3000`, image = the ECR
-   URI above. Environment variables: `PORT`, `NODE_ENV=production`, `DB_HOST`, `DB_PORT`,
-   `DB_USERNAME`, `DB_DATABASE`, `FRONTEND_ORIGIN` (the CloudFront URL from step 3),
-   `WOMPI_SANDBOX_URL`, `WOMPI_PUBLIC_KEY`, `BASE_FEE_CENTS`. Put `DB_PASSWORD`,
-   `WOMPI_PRIVATE_KEY` and `WOMPI_INTEGRITY_KEY` in **Secrets Manager** and reference them
-   as *secrets* on the task definition, not as plain env vars.
-4. **Service**: Fargate, desired count 1, attach to an **Application Load Balancer**
-   (target group health check path `/health`). Security group: inbound 3000 from the ALB's
-   security group only.
-5. Confirm `http://<alb-dns-name>/health` returns `{"status":"ok"}`; that ALB DNS name (or
-   a custom domain pointed at it) is your `VITE_API_BASE_URL`.
-6. (Bonus points) Put HTTPS in front: request an ACM certificate for your domain, add an
-   HTTPS listener on the ALB, redirect HTTP → HTTPS.
+## 2. Provision the instance with Terraform
 
-### 3. Frontend — S3 + CloudFront
+```bash
+cd infra/terraform
+ssh-keygen -t ed25519 -f ~/.ssh/checkout-flow-ec2 -N ""   # dedicated key for this instance
+terraform init
+cp terraform.tfvars.example terraform.tfvars   # fill in the Wompi sandbox keys
+AWS_PROFILE=checkout-flow terraform plan -out=tfplan
+AWS_PROFILE=checkout-flow terraform apply "tfplan"
+```
 
-1. Build with the real API URL baked in:
-   ```bash
-   cd frontend
-   VITE_API_BASE_URL=http://<alb-dns-name> \
-   VITE_WOMPI_SANDBOX_URL=https://api-sandbox.co.uat.wompi.dev/v1 \
-   VITE_WOMPI_PUBLIC_KEY=pub_stagtest_g2u0HQd3ZMh05hsSgTS2lUV8t3s4mOt7 \
-     npm run build
-   ```
-2. Create a **private** S3 bucket, upload `dist/`:
-   ```bash
-   aws s3 sync dist/ s3://checkout-flow-frontend --delete
-   ```
-3. Create a **CloudFront** distribution with the bucket as origin (Origin Access Control,
-   not a public bucket policy), default root object `index.html`, and a custom error
-   response mapping `404 → /index.html` with status `200` (SPA fallback for a refresh on
-   any step).
-4. Once deployed, the CloudFront domain (`https://dxxxxx.cloudfront.net`) is your app URL.
-   Go back and set that as the backend's `FRONTEND_ORIGIN` (for CORS) and redeploy the
-   backend task if it changed.
+Outputs give you `public_ip` / `frontend_url` / `backend_url` / `ssh_command`. The
+instance's `user_data` script (see `infra/terraform/user_data.sh.tpl`) runs on first boot
+and does everything: installs Docker, adds swap (a `t3.micro` only has ~1GB RAM — builds
+will OOM without it), clones this repo, builds the images with the right
+`VITE_API_BASE_URL` baked in (the Elastic IP is known before boot, no chicken-and-egg),
+starts `docker compose`, then runs migrations + seed. Takes 5-10 minutes; watch it with:
 
-### 4. Smoke test
+```bash
+ssh -i ~/.ssh/checkout-flow-ec2 ubuntu@<public_ip> \
+  "tail -f /var/log/cloud-init-output.log"
+```
 
-- Open the CloudFront URL, confirm the product loads with real stock.
-- Run the full checkout with a Wompi sandbox test card (see `README.md` → "Sandbox test
-  cards") and confirm the transaction reaches a final state and stock decreases.
+## 3. Redeploying after a code change
 
-## B. Terraform
+The instance doesn't auto-pull. After pushing to GitHub:
 
-See [`infra/terraform/README.md`](../infra/terraform/README.md) for the equivalent stack
-as code, and the honesty note there about it not having been applied in this environment.
+```bash
+ssh -i ~/.ssh/checkout-flow-ec2 ubuntu@<public_ip>
+cd /opt/checkout-flow
+git pull
+sudo docker compose build <backend|frontend>   # or both, no args
+sudo docker compose up -d <backend|frontend>
+```
 
-## Notes on alternative compute options
+Migrations/seed only need to run once (`sudo docker compose exec backend npm run
+migration:run:prod`); re-running the seed script is safe, it skips products that already
+exist (matched by SKU).
 
-- **AWS Lambda**: NestJS can run on Lambda via `@vendia/serverless-express` or the
-  `@nestjs/platform-express` + `serverless-http` combo; consider it if you want to stay
-  fully within the free tier with near-zero idle cost. Left out of this scaffold because
-  it needs its own API Gateway wiring and cold-start handling, which is a meaningfully
-  different task definition from the Fargate service above.
-- **A single EC2 instance** running `docker compose up` (the root `docker-compose.yml`) is
-  the fastest way to get something live for a demo, at the cost of no auto-scaling / HA.
+## 4. Smoke test
+
+```bash
+curl -s http://<public_ip>/                    # frontend, expect 200
+curl -s http://<public_ip>:3000/products        # backend, expect the seeded products
+curl -s http://<public_ip>:3000/docs -o /dev/null -w "%{http_code}\n"   # swagger, expect 200
+```
+
+Then run a real checkout in the browser with a Wompi sandbox test card (see the main
+[`README.md`](../README.md#sandbox-test-cards)) and confirm stock decreases afterward.
+
+## 5. Known gap: no HTTPS
+
+The app is served over plain HTTP on the Elastic IP — there's no domain name to issue a
+certificate for. To add HTTPS: point a domain's A record at the Elastic IP, then either run
+Certbot (Let's Encrypt) on the instance in front of nginx, or put a CloudFront distribution
+in front of it with an ACM certificate. Left out here since it requires a domain the
+grader/reviewer would need to already have.
+
+## 6. Tearing it down
+
+```bash
+cd infra/terraform
+AWS_PROFILE=checkout-flow terraform destroy
+```
+
+Removes the instance, Elastic IP, security group and key pair — stops all billing for this
+stack.
+
+---
+
+## Alternative: ECS + ALB + RDS
+
+For a setup meant to actually stay up under real traffic (auto-scaling, zero-downtime
+deploys, a managed database with backups), the more conventional shape is:
+
+```
+Browser ──HTTPS──► CloudFront + S3 (frontend)
+                            │
+                            ▼
+                  ALB → ECS Fargate (backend)
+                            │
+                            ▼
+                     RDS PostgreSQL
+```
+
+This project's `infra/terraform` used to provision exactly that, before being simplified to
+the single-EC2 approach above for cost reasons. The rough shape, if you want to rebuild it:
+ECR repos for both images, an ECS cluster + Fargate service + task definition (secrets from
+Secrets Manager, not plain env vars) behind an ALB (`/health` as the target group check),
+and a private S3 bucket + CloudFront distribution (Origin Access Control, SPA fallback
+`404 → /index.html`) for the frontend. Budget for the ALB's flat hourly cost regardless of
+traffic.

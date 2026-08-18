@@ -135,7 +135,7 @@ told about a transaction that's already durable on our side.
 | POST   | `/transactions`              | Create a `PENDING` transaction, computes the total     |
 | POST   | `/transactions/:id/pay`       | Charge through the gateway, settle status + stock      |
 | GET    | `/transactions/:id`           | Read current transaction status                        |
-| GET    | `/health`                    | Liveness check (used by the ALB health check)           |
+| GET    | `/health`                    | Liveness check                                          |
 
 ## Getting started
 
@@ -188,11 +188,23 @@ See [`backend/.env.example`](backend/.env.example) and
 
 ### Sandbox test cards
 
-The gateway's sandbox accepts any Luhn-valid card number (this repo's own validation also
-enforces the Luhn checksum client-side). Consult the provider's sandbox docs for the
-specific numbers that force a `DECLINED`/`ERROR` outcome if you want to exercise those
-paths deliberately — any structurally valid number will otherwise go through the normal
-`PENDING → APPROVED/DECLINED` flow against the sandbox.
+Despite accepting only "fake" data by design, the gateway's sandbox does **not** accept
+arbitrary Luhn-valid numbers — only specific numbers from its own test suite (this tripped
+us up during testing: a made-up-but-Luhn-valid number gets a `422` with
+`"El número de tarjeta usado no es aceptado en el ambiente de pruebas."`). Use one of:
+
+- `4242 4242 4242 4242` (Visa)
+- `5555 5555 5555 4444` (Mastercard)
+
+with any future expiry date, any CVC, and a card-holder name of **at least 5 characters**
+(also gateway-enforced — this repo's client-side validation matches it). The
+`PaymentInfoModal` shows this same hint inline.
+
+Transaction creation additionally requires an integrity signature: `SHA-256(reference +
+amount_in_cents + currency + integrity_secret)`, sent as `signature`. Implemented in
+[`wompi-payment.adapter.ts`](backend/src/modules/transactions/infrastructure/payment/wompi-payment.adapter.ts) —
+easy to miss since the gateway's docs describe it mainly for the hosted widget checkout, but
+the direct transaction-creation endpoint rejects requests without it too.
 
 ## Testing & coverage
 
@@ -206,7 +218,7 @@ gateway adapter, HTTP clients) — no network or database needed to run the suit
 Test Suites: 18 passed, 18 total
 Tests:       82 passed, 82 total
 
-All files       | 99.22% Stmts | 91.37% Branch | 97.46% Funcs | 99.43% Lines
+All files       | 99.22% Stmts | 91.37% Branch | 97.50% Funcs | 99.43% Lines
 ```
 
 Persistence adapters (`*.typeorm.repository.ts`) and the migration file are excluded from
@@ -219,14 +231,15 @@ covered.
 
 ```
 Test Suites: 13 passed, 13 total
-Tests:       67 passed, 67 total
+Tests:       72 passed, 72 total
 
-All files       | 99.27% Stmts | 92.72% Branch | 98.33% Funcs | 99.59% Lines
+All files       | 99.31% Stmts | 93.85% Branch | 98.38% Funcs | 99.60% Lines
 ```
 
 Covers: card validation (Luhn + brand detection), money formatting, both Redux slices
 (including the async thunks that tokenize the card and drive the checkout), the API
-clients, and every component (`ProductPage`, `PaymentInfoModal`, `SummaryBackdrop`,
+clients (including translating the gateway's field-level validation errors into readable
+messages), and every component (`ProductPage`, `PaymentInfoModal`, `SummaryBackdrop`,
 `FinalStatusPage`, `CardBrandIcon`, `App`).
 
 ## Security
@@ -237,6 +250,10 @@ clients, and every component (`ProductPage`, `PaymentInfoModal`, `SummaryBackdro
 - **Secrets**: the private key / integrity key live in backend env vars only, never in the
   frontend bundle or in git (`.env` is gitignored; `.env.example` documents the *sandbox*
   values already shared in the test brief, not production secrets).
+- **Transaction integrity**: every charge request is signed with a SHA-256 signature
+  derived from the reference/amount/currency/integrity-secret, so a tampered request (e.g. a
+  modified amount) is rejected by the gateway before any money moves — see "Sandbox test
+  cards" above.
 - **Security headers** (OWASP alignment, bonus rubric item): `helmet()` on the NestJS app,
   plus explicit `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and
   `Permissions-Policy` headers on the frontend's Nginx config
@@ -248,30 +265,35 @@ clients, and every component (`ProductPage`, `PaymentInfoModal`, `SummaryBackdro
 
 ## Deployment
 
-See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full AWS guide (S3 + CloudFront for
-the frontend, ECS Fargate + ALB for the backend, RDS for Postgres) and
-[`infra/terraform`](infra/terraform) for an infrastructure-as-code scaffold of the same
-resources.
+**Live now**, on a single EC2 `t3.micro` running this repo's own `docker-compose.yml`
+(Postgres + backend + frontend), provisioned with Terraform and reachable on its Elastic IP:
 
-**Deployed URLs** (single EC2 instance running `docker-compose.yml`, chosen over ECS+ALB+RDS
-for this deployment since it's evaluated by a couple of reviewers and an ALB bills hourly
-regardless of traffic — see [`infra/terraform`](infra/terraform) for details):
 - Frontend: http://32.196.234.16
 - Backend API: http://32.196.234.16:3000
 - Swagger: http://32.196.234.16:3000/docs
+
+Chosen over a "textbook" ECS Fargate + ALB + RDS split because this app is reviewed by a
+couple of people, not run in production — an ALB bills hourly regardless of traffic
+(~$16-20/mo) while the `t3.micro` is free-tier eligible. See
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full guide (IAM setup, applying,
+redeploying after a change, teardown) and the ECS/ALB/RDS alternative if this ever needs to
+handle real traffic. IaC lives in [`infra/terraform`](infra/terraform).
+
+**Known gap**: served over plain HTTP (no custom domain to issue a TLS certificate for) —
+see "Known gap: no HTTPS" in `docs/DEPLOYMENT.md`.
 
 ## Rubric self-check
 
 | Item                                                          | Status |
 | --------------------------------------------------------------- | ------ |
 | README completed (this file)                                    | ✅ |
-| Fast-rendering, in-boundary UI                                   | ✅ mobile-first, flexbox/grid, no fixed-width overflow |
-| Full credit-card checkout onboarding flow                        | ✅ 5-step flow, PENDING → gateway → final status → stock update |
-| API working correctly (stock, transactions, customers, deliveries) | ✅ |
+| Fast-rendering, in-boundary UI                                   | ✅ mobile-first, flexbox/grid, verified at a 375px viewport with no overflow |
+| Full credit-card checkout onboarding flow                        | ✅ verified live end-to-end: tokenize → PENDING → gateway charge → APPROVED → stock decremented |
+| API working correctly (stock, transactions, customers, deliveries) | ✅ verified live against the deployed instance |
 | >80% unit test coverage, backend and frontend                     | ✅ 99.2%+ / 99.3%+ (see above) |
-| Deployed to a cloud provider                                       | ⏳ scaffold + guide ready in `infra/` and `docs/DEPLOYMENT.md`; not yet applied (needs AWS credentials) |
-| OWASP alignment, HTTPS, security headers                          | ✅ headers wired; HTTPS is provided by CloudFront/ALB+ACM at deploy time |
-| Responsive across browsers                                        | ✅ tested down to a 375px viewport |
+| Deployed to a cloud provider                                       | ✅ live on AWS EC2, see [Deployment](#deployment) |
+| OWASP alignment, HTTPS, security headers                          | ⚠️ security headers (`helmet` + nginx headers) are in place; **HTTPS is not** — no custom domain to issue a certificate for, see the deployment guide's "Known gap" |
+| Responsive across browsers                                        | ⚠️ responsive layout verified at mobile width; only tested in a Chromium-based browser, not manually cross-checked in Firefox/Safari |
 | CSS quality                                                       | ✅ flexbox/grid, CSS custom properties, no framework bloat |
 | Clean code                                                        | ✅ hexagonal boundaries, no business logic in controllers |
 | Hexagonal architecture / Ports & Adapters                        | ✅ see [Architecture](#architecture) |

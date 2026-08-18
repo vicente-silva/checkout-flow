@@ -1,0 +1,15 @@
+# Copy to terraform.tfvars (gitignored) and fill in.
+# The values below are the Wompi *sandbox* keys shared in the test brief —
+# safe to keep as-is; they're not production secrets.
+
+wompi_public_key    = "pub_stagtest_g2u0HQd3ZMh05hsSgTS2lUV8t3s4mOt7"
+wompi_private_key   = "prv_stagtest_5i0ZGIGiFcDQifYsXxvsny7Y37tKqFWg"
+wompi_events_key    = "stagtest_events_2PDUmhMywUkvb1LvxYnayFbmofT7w39N"
+wompi_integrity_key = "stagtest_integrity_nAIBuqayW70XpUqJS4qf4STYiISd89Fp"
+
+# Optional overrides (defaults live in variables.tf):
+# aws_region          = "us-east-1"
+# instance_type       = "t3.micro"
+# ssh_public_key_path = "~/.ssh/checkout-flow-ec2.pub"
+# ssh_allowed_cidr    = "0.0.0.0/0"   # restrict to your own IP/32 once you know it
+# repo_url            = "https://github.com/vicente-silva/checkout-flow.git"
